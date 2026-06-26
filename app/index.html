@@ -71,10 +71,12 @@
         <article class="paper-shell">
           <nav class="page-nav" aria-label="Browse pages">
             <button id="previousPage" class="page-arrow" aria-label="Previous page" disabled>←</button>
+            <button id="newDraftButton" class="page-action" aria-label="Create a new draft" disabled>New</button>
             <button id="draftPage" class="page-position" aria-label="Return to current draft">
               <span id="pageKind">Current draft</span>
               <b id="pageCount">1 / 1</b>
             </button>
+            <button id="deletePageButton" class="page-action danger" aria-label="Delete archived page" disabled>Delete</button>
             <button id="nextPage" class="page-arrow" aria-label="Next page" disabled>→</button>
           </nav>
           <div class="paper">
@@ -86,13 +88,16 @@
               <span class="folio">No. <b id="folio">001</b></span>
             </div>
 
-            <div id="noteBody" class="note-body empty" contenteditable="true" spellcheck="true">
+            <div id="noteBody" class="note-body empty" contenteditable="true" spellcheck="true" role="textbox" aria-multiline="true" inputmode="text" autocapitalize="sentences">
               Your words will settle here.
             </div>
 
             <footer class="paper-foot">
               <p id="provenance">Recorded and transcribed entirely on this device.</p>
-              <button id="saveButton" disabled>Save as Markdown</button>
+              <div class="save-cluster">
+                <span id="autosaveStatus" class="autosave-status" aria-live="polite">saved automatically</span>
+                <button id="saveButton" disabled>Save</button>
+              </div>
             </footer>
           </div>
         </article>

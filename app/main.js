@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, session } = require("electron");
 const path = require("node:path");
 const {
+  deleteArchiveEntry,
   ensureDirectories,
   getArchiveCount,
   getArchivePage,
@@ -60,5 +61,6 @@ ipcMain.handle("audio:transcribe", (_event, payload) => transcribe(payload));
 ipcMain.handle("note:save", (_event, payload) => saveNote(payload));
 ipcMain.handle("notes:list", listNotes);
 ipcMain.handle("notes:get", (_event, id) => getNote(id));
-ipcMain.handle("archive:count", getArchiveCount);
-ipcMain.handle("archive:page", (_event, index) => getArchivePage(index));
+ipcMain.handle("archive:count", (_event, options) => getArchiveCount(options));
+ipcMain.handle("archive:page", (_event, index, options) => getArchivePage(index, options));
+ipcMain.handle("archive:delete", (_event, id) => deleteArchiveEntry(id));

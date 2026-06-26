@@ -2,6 +2,7 @@ const http = require("node:http");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const {
+  deleteArchiveEntry,
   getArchiveCount,
   getArchivePage,
   getConfig,
@@ -69,18 +70,29 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "GET" && url.pathname === "/api/archive") {
-    sendJson(response, 200, await getArchiveCount());
+    sendJson(response, 200, await getArchiveCount({
+      exclude: url.searchParams.get("exclude") || "",
+    }));
     return;
   }
 
   if (request.method === "GET" && url.pathname.startsWith("/api/archive/")) {
-    sendJson(response, 200, await getArchivePage(url.pathname.slice("/api/archive/".length)));
+    sendJson(response, 200, await getArchivePage(
+      url.pathname.slice("/api/archive/".length),
+      { exclude: url.searchParams.get("exclude") || "" },
+    ));
     return;
   }
 
   if (request.method === "GET" && url.pathname.startsWith("/api/notes/")) {
     const id = decodeURIComponent(url.pathname.slice("/api/notes/".length));
     sendJson(response, 200, await getNote(id));
+    return;
+  }
+
+  if (request.method === "DELETE" && url.pathname.startsWith("/api/notes/")) {
+    const id = decodeURIComponent(url.pathname.slice("/api/notes/".length));
+    sendJson(response, 200, await deleteArchiveEntry(id));
     return;
   }
 

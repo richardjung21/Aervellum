@@ -9,6 +9,7 @@ const noteBody = document.querySelector("#noteBody");
 const noteTitle = document.querySelector("#noteTitle");
 const noteDate = document.querySelector("#noteDate");
 const saveButton = document.querySelector("#saveButton");
+const autosaveStatus = document.querySelector("#autosaveStatus");
 const statusLight = document.querySelector("#statusLight");
 const statusTitle = document.querySelector("#statusTitle");
 const statusDetail = document.querySelector("#statusDetail");
@@ -16,6 +17,8 @@ const provenance = document.querySelector("#provenance");
 const paper = document.querySelector(".paper");
 const previousPage = document.querySelector("#previousPage");
 const nextPage = document.querySelector("#nextPage");
+const newDraftButton = document.querySelector("#newDraftButton");
+const deletePageButton = document.querySelector("#deletePageButton");
 const draftPage = document.querySelector("#draftPage");
 const pageKind = document.querySelector("#pageKind");
 const pageCount = document.querySelector("#pageCount");
@@ -47,16 +50,31 @@ const aervellum = window.aervellum || window.vellum || {
     if (!response.ok) throw new Error(result.error || "Saving the note failed.");
     return result;
   },
-  async getArchiveCount() {
-    const response = await fetch("/api/archive", { cache: "no-store" });
+  async getArchiveCount(options = {}) {
+    const exclude = options.exclude ? `?exclude=${encodeURIComponent(options.exclude)}` : "";
+    const response = await fetch(`/api/archive${exclude}`, { cache: "no-store" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Loading the archive failed.");
     return result;
   },
-  async getArchivePage(index) {
-    const response = await fetch(`/api/archive/${index}`, { cache: "no-store" });
+  async getArchivePage(index, options = {}) {
+    const exclude = options.exclude ? `?exclude=${encodeURIComponent(options.exclude)}` : "";
+    const response = await fetch(`/api/archive/${index}${exclude}`, { cache: "no-store" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Loading that page failed.");
+    return result;
+  },
+  async deleteArchiveEntry(id) {
+    const response = await fetch(`/api/notes/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      if (response.status === 404 && result.error === "Not found.") {
+        throw new Error("Delete is not available on the running host yet. Restart the private host and refresh this page.");
+      }
+      throw new Error(result.error || "Deleting that page failed.");
+    }
     return result;
   },
 };
@@ -77,6 +95,10 @@ let currentPageIndex = 0;
 let pageChangeLocked = false;
 let wheelLocked = false;
 let pointerStart;
+let autosaveTimer;
+let autosaveFadeTimer;
+let saveInFlight = false;
+let saveAgainAfterCurrent = false;
 const noteCache = new Map();
 
 const draft = {
@@ -86,6 +108,8 @@ const draft = {
   empty: true,
   provenance: "Recorded and transcribed entirely on this device.",
   recording: "",
+  noteFile: "",
+  dirty: false,
 };
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -209,24 +233,161 @@ function captureDraft() {
   draft.empty = noteBody.classList.contains("empty");
   draft.provenance = provenance.textContent;
   draft.recording = draft.recording || "";
+  draft.noteFile = draft.noteFile || "";
+}
+
+function resetDraft() {
+  draft.title = "An untitled voice note";
+  draft.text = "";
+  draft.form = "note";
+  draft.empty = true;
+  draft.provenance = "Recorded and transcribed entirely on this device.";
+  draft.recording = "";
+  draft.noteFile = "";
+  draft.dirty = false;
+}
+
+function draftHasContent() {
+  return Boolean(draft.recording || draft.text.trim() || !draft.empty || draft.title !== "An untitled voice note");
+}
+
+function activeArchiveExclude() {
+  return draft.noteFile || "";
+}
+
+function markDraftDirty() {
+  if (currentPageIndex !== 0) return;
+  draft.dirty = true;
+  updatePageNavigation();
+  if (autosaveTimer) window.clearTimeout(autosaveTimer);
+  if (!noteBody.textContent.trim() || noteBody.classList.contains("empty")) return;
+  autosaveTimer = window.setTimeout(() => saveCurrentDraft({ automatic: true }), 900);
+}
+
+function showAutosaveStatus() {
+  if (!autosaveStatus) return;
+  autosaveStatus.classList.add("visible");
+  if (autosaveFadeTimer) window.clearTimeout(autosaveFadeTimer);
+  autosaveFadeTimer = window.setTimeout(() => {
+    autosaveStatus.classList.remove("visible");
+  }, 2000);
+}
+
+async function saveCurrentDraft({ automatic = false } = {}) {
+  if (currentPageIndex !== 0) return null;
+  captureDraft();
+  const text = noteBody.classList.contains("empty") ? "" : noteBody.textContent.trim();
+  if (!text) return null;
+
+  if (saveInFlight) {
+    saveAgainAfterCurrent = true;
+    return null;
+  }
+
+  saveInFlight = true;
+  saveButton.disabled = true;
+  try {
+    const result = await aervellum.saveNote({
+      title: noteTitle.value,
+      text: noteBody.textContent,
+      form: form.value,
+      recording: draft.recording,
+      noteFile: draft.noteFile,
+    });
+    draft.noteFile = result.noteFile || (result.file ? result.file.split(/[\\/]/).pop() : draft.noteFile);
+    draft.dirty = false;
+    captureDraft();
+    await refreshArchive({ clearCache: true });
+    if (automatic) {
+      showAutosaveStatus();
+    } else {
+      showAutosaveStatus();
+      setStatus(
+        "ready",
+        result.updated || draft.noteFile ? "Saved" : "Saved to the archive",
+        result.file,
+      );
+    }
+    return result;
+  } catch (error) {
+    setStatus("error", automatic ? "Autosave failed" : "Could not save the page", error.message);
+    return null;
+  } finally {
+    saveInFlight = false;
+    saveButton.disabled = currentPageIndex !== 0 || !noteBody.textContent.trim();
+    if (saveAgainAfterCurrent) {
+      saveAgainAfterCurrent = false;
+      markDraftDirty();
+    } else {
+      updatePageNavigation();
+    }
+  }
 }
 
 function setArchiveMode(isArchive) {
   paper.classList.toggle("archive-page", isArchive);
   noteTitle.readOnly = isArchive;
   noteBody.contentEditable = String(!isArchive);
+  noteBody.setAttribute("aria-readonly", String(isArchive));
   form.disabled = isArchive;
   saveButton.disabled = isArchive || !noteBody.textContent.trim();
-  saveButton.textContent = isArchive ? "Archived page" : "Save as Markdown";
+  saveButton.textContent = isArchive ? "Archived page" : "Save";
+  newDraftButton.disabled = isArchive ? false : !(draft.noteFile && !draft.dirty && !saveInFlight);
+  deletePageButton.disabled = !isArchive;
 }
 
 function updatePageNavigation() {
   const total = archiveCount + 1;
   previousPage.disabled = currentPageIndex === 0;
   nextPage.disabled = currentPageIndex >= total - 1;
-  pageKind.textContent = currentPageIndex === 0 ? "Current draft" : "Archive";
+  newDraftButton.disabled = currentPageIndex === 0
+    ? !(draft.noteFile && !draft.dirty && !saveInFlight)
+    : false;
+  deletePageButton.disabled = currentPageIndex === 0;
+  pageKind.textContent = currentPageIndex === 0
+    ? (draft.noteFile ? "Current entry" : "Current draft")
+    : "Archive";
   pageCount.textContent = `${currentPageIndex + 1} / ${total}`;
   folio.textContent = String(currentPageIndex + 1).padStart(3, "0");
+}
+
+async function createNewDraft() {
+  if (draft.dirty && !window.confirm("Discard unsaved changes and start a fresh page?")) return;
+  resetDraft();
+  noteCache.clear();
+  await refreshArchive({ clearCache: true });
+  currentPageIndex = -1;
+  await showPage(0, -1);
+  setStatus("ready", "New draft", "A fresh page is ready.");
+  window.setTimeout(() => noteBody.focus(), 120);
+}
+
+async function deleteCurrentArchivePage() {
+  if (currentPageIndex === 0) return;
+  const archiveIndex = currentPageIndex - 1;
+  const entry = noteCache.get(archiveIndex);
+  if (!entry?.id) {
+    setStatus("error", "Could not delete", "This archive page has not finished loading.");
+    return;
+  }
+  if (!window.confirm(`Move "${entry.title}" to the local trash?`)) return;
+
+  deletePageButton.disabled = true;
+  try {
+    setStatus("busy", "Crumpling the page", "Moving the entry into the local trash.");
+    await playPaperCrumple();
+    const result = await aervellum.deleteArchiveEntry(entry.id);
+    noteCache.clear();
+    await refreshArchive({ clearCache: true });
+    const nextPageIndex = Math.min(currentPageIndex, archiveCount);
+    currentPageIndex = -1;
+    await showPage(nextPageIndex, -1);
+    setStatus("ready", "Moved to trash", `${result.moved?.length || 0} file(s) moved to ${result.trash}.`);
+  } catch (error) {
+    setStatus("error", "Could not delete the page", error.message);
+  } finally {
+    updatePageNavigation();
+  }
 }
 
 async function showPage(index, direction = 0) {
@@ -257,7 +418,7 @@ async function showPage(index, direction = 0) {
       let entry = noteCache.get(archiveIndex);
       if (!entry) {
         setStatus("busy", "Turning the page", "Opening a saved entry from the local archive.");
-        const page = await aervellum.getArchivePage(archiveIndex);
+        const page = await aervellum.getArchivePage(archiveIndex, { exclude: activeArchiveExclude() });
         archiveCount = page.count;
         entry = page.entry;
         noteCache.set(archiveIndex, entry);
@@ -291,7 +452,7 @@ async function showPage(index, direction = 0) {
 }
 
 async function refreshArchive({ clearCache = false } = {}) {
-  const result = await aervellum.getArchiveCount();
+  const result = await aervellum.getArchiveCount({ exclude: activeArchiveExclude() });
   const nextCount = Number.isInteger(result.count) ? result.count : 0;
   if (clearCache || nextCount !== archiveCount) noteCache.clear();
   archiveCount = nextCount;
@@ -302,7 +463,7 @@ async function refreshArchive({ clearCache = false } = {}) {
 async function prefetchPage(index) {
   if (index < 0 || index >= archiveCount || noteCache.has(index)) return;
   try {
-    const page = await aervellum.getArchivePage(index);
+    const page = await aervellum.getArchivePage(index, { exclude: activeArchiveExclude() });
     archiveCount = page.count;
     noteCache.set(index, page.entry);
     updatePageNavigation();
@@ -314,6 +475,18 @@ async function prefetchPage(index) {
 function prefetchAdjacent(index) {
   prefetchPage(index - 1);
   prefetchPage(index + 1);
+}
+
+function playPaperCrumple() {
+  return new Promise((resolve) => {
+    paper.classList.remove("crumpling");
+    void paper.offsetWidth;
+    paper.classList.add("crumpling");
+    window.setTimeout(() => {
+      paper.classList.remove("crumpling");
+      resolve();
+    }, 560);
+  });
 }
 
 async function startRecording() {
@@ -384,6 +557,8 @@ async function stopRecording() {
     provenance.textContent = `${accelerator} · audio kept in ${result.audioFile}`;
     draft.recording = result.transcriptFile;
     captureDraft();
+    markDraftDirty();
+    saveCurrentDraft({ automatic: true });
     await refreshArchive({ clearCache: true });
     setStatus("ready", "The page is ready", `Transcribed with ${accelerator}.`);
   } catch (error) {
@@ -413,6 +588,8 @@ form.addEventListener("change", () => {
     noteBody.textContent = form.value === "poem" ? shapeAsPoem(current) : current;
   }
   applyFormAppearance();
+  captureDraft();
+  markDraftDirty();
 });
 
 noteBody.addEventListener("focus", () => {
@@ -425,40 +602,26 @@ noteBody.addEventListener("focus", () => {
 noteBody.addEventListener("input", () => {
   saveButton.disabled = !noteBody.textContent.trim();
   captureDraft();
+  markDraftDirty();
 });
 
-noteTitle.addEventListener("input", captureDraft);
-
-saveButton.addEventListener("click", async () => {
-  saveButton.disabled = true;
-  try {
-    const result = await aervellum.saveNote({
-      title: noteTitle.value,
-      text: noteBody.textContent,
-      form: form.value,
-      recording: draft.recording,
-    });
-    setStatus(
-      "ready",
-      result.duplicate ? "Already in the archive" : "Saved to the archive",
-      result.file,
-    );
-    captureDraft();
-    await refreshArchive({ clearCache: true });
-  } catch (error) {
-    setStatus("error", "Could not save the page", error.message);
-  } finally {
-    saveButton.disabled = false;
-  }
+noteTitle.addEventListener("input", () => {
+  captureDraft();
+  markDraftDirty();
 });
+
+saveButton.addEventListener("click", () => saveCurrentDraft({ automatic: false }));
 
 previousPage.addEventListener("click", () => showPage(currentPageIndex - 1, -1));
 nextPage.addEventListener("click", () => showPage(currentPageIndex + 1, 1));
+newDraftButton.addEventListener("click", createNewDraft);
+deletePageButton.addEventListener("click", deleteCurrentArchivePage);
 draftPage.addEventListener("click", () => {
   if (currentPageIndex !== 0) showPage(0, -1);
 });
 
 paper.addEventListener("pointerdown", (event) => {
+  if (currentPageIndex === 0 && event.target.closest("#noteBody, #noteTitle")) return;
   pointerStart = { x: event.clientX, y: event.clientY };
 });
 

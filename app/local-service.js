@@ -12,6 +12,7 @@ const modelPath = configuredModelPath
   : path.join(root, "models", "ggml-large-v3-turbo-q5_0.bin");
 const audioDir = path.join(root, "outputs", "audio");
 const notesDir = path.join(root, "outputs", "notes");
+const trashDir = path.join(root, "outputs", "trash");
 
 let transcriptionQueue = Promise.resolve();
 let noteSaveQueue = Promise.resolve();
@@ -159,6 +160,7 @@ async function ensureDirectories() {
   await Promise.all([
     fs.mkdir(audioDir, { recursive: true }),
     fs.mkdir(notesDir, { recursive: true }),
+    fs.mkdir(trashDir, { recursive: true }),
   ]);
 }
 
@@ -274,6 +276,12 @@ function recordingFilename(value) {
   return /^\d{4}-\d{2}-\d{2}T[\d-]+Z-transcript\.txt$/.test(filename) ? filename : "";
 }
 
+function markdownFilename(value) {
+  if (typeof value !== "string" || !value.trim()) return "";
+  const filename = path.basename(value.replaceAll("\\", "/"));
+  return /^[\p{L}\p{N}._-]+\.md$/u.test(filename) ? filename : "";
+}
+
 async function findDuplicateNote(title, form, text, recording) {
   const wanted = noteFingerprint(title, form, text);
   const entries = await fs.readdir(notesDir, { withFileTypes: true });
@@ -305,10 +313,17 @@ async function runSaveNote(payload) {
   const allowedForms = new Set(["note", "poem", "diary"]);
   const form = allowedForms.has(payload.form) ? payload.form : "note";
   const recording = recordingFilename(payload.recording);
-  const duplicate = await findDuplicateNote(title, form, text, recording);
+  const existingFile = markdownFilename(payload.file || payload.noteFile);
+  const existingMetadata = existingFile && await exists(path.join(notesDir, existingFile))
+    ? parseFrontMatter(await fs.readFile(path.join(notesDir, existingFile), "utf8")).metadata
+    : null;
+  const duplicate = existingFile && existingMetadata
+    ? { filename: existingFile, metadata: existingMetadata, linkedRecording: true, explicit: true }
+    : await findDuplicateNote(title, form, text, recording);
   if (duplicate && !duplicate.linkedRecording) {
     return {
       file: path.relative(root, path.join(notesDir, duplicate.filename)),
+      noteFile: duplicate.filename,
       duplicate: true,
     };
   }
@@ -316,24 +331,12 @@ async function runSaveNote(payload) {
   const filename = duplicate?.filename || `${stamp()}-${safeStem(title)}.md`;
   const target = path.join(notesDir, filename);
   const created = duplicate?.metadata?.created || new Date().toISOString();
-  const body = [
-    "---",
-    `title: "${title.replaceAll('"', '\\"')}"`,
-    `form: ${form}`,
-    `created: ${created}`,
-    ...(recording ? [`recording: "${recording}"`] : []),
-    "local: true",
-    "---",
-    "",
-    `# ${title}`,
-    "",
-    text,
-    "",
-  ].join("\n");
+  const body = markdownBody({ title, form, created, text, recording });
 
   await fs.writeFile(target, body, "utf8");
   return {
     file: path.relative(root, target),
+    noteFile: filename,
     duplicate: false,
     updated: Boolean(duplicate?.linkedRecording),
     recording,
@@ -419,6 +422,33 @@ function generatedTranscriptTitle(created, text) {
   return firstWords ? `${label} — ${firstWords}${text.split(/\s+/).length > 7 ? "…" : ""}` : label;
 }
 
+function markdownBody({ title, form, created, text, recording }) {
+  return [
+    "---",
+    `title: "${title.replaceAll('"', '\\"')}"`,
+    `form: ${form}`,
+    `created: ${created}`,
+    ...(recording ? [`recording: "${recording}"`] : []),
+    "local: true",
+    "---",
+    "",
+    `# ${title}`,
+    "",
+    text,
+    "",
+  ].join("\n");
+}
+
+async function uniqueMarkdownFilename(baseName) {
+  let filename = baseName;
+  let index = 2;
+  while (await exists(path.join(notesDir, filename))) {
+    filename = baseName.replace(/\.md$/i, `-${index}.md`);
+    index += 1;
+  }
+  return filename;
+}
+
 async function readMarkdownEntries() {
   const entries = await fs.readdir(notesDir, { withFileTypes: true });
   return Promise.all(entries
@@ -446,15 +476,15 @@ async function readMarkdownEntries() {
     }));
 }
 
-async function listNotes() {
+async function migrateTranscriptsToMarkdown() {
   await ensureDirectories();
   const [audioEntries, markdownEntries] = await Promise.all([
     fs.readdir(audioDir, { withFileTypes: true }),
     readMarkdownEntries(),
   ]);
 
-  const markdownByText = new Map();
   const markdownByRecording = new Map();
+  const markdownByText = new Map();
   for (const note of markdownEntries.sort((a, b) => Date.parse(b.created) - Date.parse(a.created))) {
     if (note.recording && !markdownByRecording.has(note.recording)) {
       markdownByRecording.set(note.recording, note);
@@ -462,37 +492,66 @@ async function listNotes() {
     if (!markdownByText.has(note.textFingerprint)) markdownByText.set(note.textFingerprint, note);
   }
 
-  const matchedMarkdown = new Set();
-  const records = [];
+  let migrated = 0;
   for (const entry of audioEntries) {
     if (!entry.isFile() || !entry.name.endsWith("-transcript.txt")) continue;
+    if (markdownByRecording.has(entry.name)) continue;
+
     const text = (await fs.readFile(path.join(audioDir, entry.name), "utf8")).trim();
     if (!text) continue;
-    const transcriptFingerprint = textFingerprint(text);
-    const matched = markdownByRecording.get(entry.name) || markdownByText.get(transcriptFingerprint);
-    if (matched) matchedMarkdown.add(matched.textFingerprint);
-    const created = transcriptCreated(entry.name);
-    records.push({
-      id: transcriptId(entry.name),
-      title: matched?.title || generatedTranscriptTitle(created, text),
-      form: matched?.form || "note",
+
+    const existing = markdownByText.get(textFingerprint(text));
+    if (existing) {
+      if (!existing.recording) {
+        const body = markdownBody({
+          title: existing.title,
+          form: existing.form,
+          created: existing.created,
+          text: existing.text,
+          recording: entry.name,
+        });
+        await fs.writeFile(path.join(notesDir, existing.filename), body, "utf8");
+        existing.recording = entry.name;
+        markdownByRecording.set(entry.name, existing);
+      }
+      continue;
+    }
+
+    const created = transcriptCreated(entry.name) || new Date().toISOString();
+    const title = generatedTranscriptTitle(created, text);
+    const filename = await uniqueMarkdownFilename(`${created.replace(/[:.]/g, "-")}-${safeStem(title, "voice-record")}.md`);
+    const note = {
+      filename,
+      title,
+      form: "note",
+      text,
       created,
-      source: "recording",
-    });
+      recording: entry.name,
+      textFingerprint: textFingerprint(text),
+    };
+    await fs.writeFile(path.join(notesDir, filename), markdownBody(note), "utf8");
+    markdownByRecording.set(entry.name, note);
+    markdownByText.set(note.textFingerprint, note);
+    migrated += 1;
   }
 
-  const standaloneByFingerprint = new Map();
-  for (const note of markdownEntries) {
-    if (matchedMarkdown.has(note.textFingerprint) || standaloneByFingerprint.has(note.fingerprint)) continue;
-    standaloneByFingerprint.set(note.fingerprint, note);
-    records.push({
+  return { migrated };
+}
+
+async function listNotes(options = {}) {
+  await ensureDirectories();
+  await migrateTranscriptsToMarkdown();
+  const markdownEntries = await readMarkdownEntries();
+  const excludeNoteFile = markdownFilename(options.exclude || options.excludeNoteFile);
+  const records = markdownEntries
+    .filter((note) => note.filename !== excludeNoteFile)
+    .map((note) => ({
       id: markdownId(note.filename),
       title: note.title,
       form: note.form,
       created: note.created,
-      source: "note",
-    });
-  }
+      source: note.recording ? "recording" : "note",
+    }));
 
   records.sort((a, b) => Date.parse(b.created) - Date.parse(a.created));
   return records;
@@ -559,13 +618,99 @@ async function getNote(id) {
   };
 }
 
-async function getArchiveCount() {
-  return { count: (await listNotes()).length };
+async function moveToTrash(file, deletionDir) {
+  try {
+    await fs.access(file);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+
+  await fs.mkdir(deletionDir, { recursive: true });
+  const target = path.join(deletionDir, path.basename(file));
+  await fs.rename(file, target);
+  return path.relative(root, target);
 }
 
-async function getArchivePage(indexValue) {
+async function deleteArchiveEntry(id) {
+  const archiveId = parseArchiveId(id);
+  if (!archiveId) {
+    const error = new Error("The requested archive page is invalid.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await ensureDirectories();
+  const deletionDir = path.join(trashDir, stamp());
+  const moved = [];
+
+  if (archiveId.type === "transcript") {
+    const transcriptPath = path.join(audioDir, archiveId.filename);
+    const audioPath = path.join(audioDir, archiveId.filename.replace(/-transcript\.txt$/, ".wav"));
+    const transcriptText = await fs.readFile(transcriptPath, "utf8").catch((error) => {
+      if (error.code === "ENOENT") {
+        error.statusCode = 404;
+        error.message = "That recording transcript no longer exists.";
+      }
+      throw error;
+    });
+    const transcriptTextHash = textFingerprint(transcriptText);
+    const markdownEntries = await readMarkdownEntries();
+    const linkedMarkdown = markdownEntries.filter((note) => (
+      note.recording === archiveId.filename || note.textFingerprint === transcriptTextHash
+    ));
+
+    for (const file of [transcriptPath, audioPath]) {
+      const movedFile = await moveToTrash(file, deletionDir);
+      if (movedFile) moved.push(movedFile);
+    }
+    for (const note of linkedMarkdown) {
+      const movedFile = await moveToTrash(path.join(notesDir, note.filename), deletionDir);
+      if (movedFile) moved.push(movedFile);
+    }
+  } else {
+    const notePath = path.join(notesDir, archiveId.filename);
+    const content = await fs.readFile(notePath, "utf8").catch((error) => {
+      if (error.code === "ENOENT") {
+        error.statusCode = 404;
+        error.message = "That archive page no longer exists.";
+      }
+      throw error;
+    });
+    const { metadata } = parseFrontMatter(content);
+    const recording = recordingFilename(metadata.recording);
+    if (recording) {
+      for (const file of [
+        path.join(audioDir, recording),
+        path.join(audioDir, recording.replace(/-transcript\.txt$/, ".wav")),
+      ]) {
+        const movedRecordingFile = await moveToTrash(file, deletionDir);
+        if (movedRecordingFile) moved.push(movedRecordingFile);
+      }
+    }
+    const movedFile = await moveToTrash(notePath, deletionDir);
+    if (!movedFile) {
+      const error = new Error("That archive page no longer exists.");
+      error.statusCode = 404;
+      throw error;
+    }
+    moved.push(movedFile);
+  }
+
+  return {
+    deleted: true,
+    moved,
+    trash: path.relative(root, deletionDir),
+  };
+}
+
+async function getArchiveCount(options = {}) {
+  return { count: (await listNotes(options)).length };
+}
+
+async function getArchivePage(indexValue, options = {}) {
   const index = Number.parseInt(indexValue, 10);
-  const records = await listNotes();
+  const records = await listNotes(options);
   if (!Number.isInteger(index) || index < 0 || index >= records.length) {
     const error = new Error("That archive page is outside the current collection.");
     error.statusCode = 404;
@@ -579,6 +724,7 @@ async function getArchivePage(indexValue) {
 }
 
 module.exports = {
+  deleteArchiveEntry,
   ensureDirectories,
   getArchiveCount,
   getArchivePage,

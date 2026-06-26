@@ -323,10 +323,11 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\run.ps1
 
 On first use, the operating system will ask for microphone permission. Recording
 stops when you press the red button a second time. After transcription, the text
-remains editable. "Save as Markdown" writes the page to `outputs/notes/`;
-source WAV files and plain transcripts are kept in `outputs/audio/`. Diary
-entries use a lined journal treatment and are saved with `form: diary` in their
-front matter.
+remains editable. Draft changes autosave to `outputs/notes/`, and the **Save**
+button can be used to save immediately. Existing saved drafts are overwritten
+rather than duplicated. Source WAV files and plain transcripts are kept in
+`outputs/audio/`. Diary entries use a lined journal treatment and are saved with
+`form: diary` in their front matter.
 
 ## Runtime details
 
@@ -381,7 +382,7 @@ npm.cmd audit
 
 Electron is pinned in `package.json` and `package-lock.json`. The UI is plain
 HTML/CSS/JavaScript; the Electron main process only exposes three narrow IPC
-operations: inspect local readiness, transcribe WAV bytes, and save Markdown.
+operations: inspect local readiness, transcribe WAV bytes, and save local notes.
 
 ## Private phone access with Tailscale
 
@@ -483,19 +484,25 @@ the current draft.
 
 Archived pages are read-only, while the current draft remains editable and is
 preserved as you browse. Long archived entries scroll vertically inside the
-paper. Press the page counter to jump directly back to the draft.
+paper. Press the page counter to jump directly back to the draft. The **New**
+button appears while browsing an archived page and opens a fresh draft. The
+**Delete** button appears on archived pages and moves the entry's local files to
+`outputs/trash/` rather than permanently deleting them.
 
-The archive uses `outputs/audio/*-transcript.txt` as its source of truth, so
-every completed recording appears as its own page. A matching Markdown file can
-provide that recording's custom title and form. Standalone Markdown notes also
-appear when they do not match a recording. Repeated save requests reuse the
-existing Markdown entry instead of creating extra copies.
+The archive uses `outputs/notes/*.md` as its source of truth. Raw WAV files and
+plain transcripts remain in `outputs/audio/`, but they are linked from Markdown
+instead of appearing as separate pages. This keeps the archive from showing both
+a transcript page and an autosaved Markdown copy of the same entry. The
+currently open saved entry is also hidden from archive browsing until you press
+**New**, so the page you are editing does not appear again behind itself.
+Repeated save and autosave requests update the existing Markdown entry instead
+of creating extra copies.
 
-The browser requests only the live archive count at startup. It loads a
-recording's text when that page is opened, then preloads only the immediately
-previous and next pages. The count refreshes every 15 seconds and whenever the
-app returns to the foreground, so new transcript files appear without rebuilding
-or restarting the app.
+The browser requests only the live archive count at startup. It loads a note's
+text when that page is opened, then preloads only the immediately previous and
+next pages. The count refreshes every 15 seconds and whenever the app returns to
+the foreground, so new Markdown entries appear without rebuilding or restarting
+the app.
 
 Newly saved Markdown includes an explicit `recording` field that links it to its
 source transcript. This preserves custom titles and the selected field-note,
