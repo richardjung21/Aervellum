@@ -8,8 +8,10 @@ This project was made as a side activity. I always felt that it was really
 tiring to type out everything or handwrite my thoughts, and I would often lose
 the train of thought I was having while typing or writing it down. I felt this
 especially when I was writing my diary or trying to quickly take down idea
-notes. I tried looking for dedicated apps that could do this, though admittedly
-not with a huge amount of effort, and eventually decided to make my own.
+notes. 
+
+I tried looking for dedicated apps that could record and transcribe my voice notes on the fly, 
+though admittedly not with a huge amount of effort, and eventually decided to make my own.
 
 The app currently has three main writing shapes:
 
