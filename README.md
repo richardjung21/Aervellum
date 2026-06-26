@@ -44,100 +44,28 @@ private diary archive. See its own README for Mac/Xcode build instructions.
 No account, server, analytics, cloud API, or network connection is used at
 runtime. Recordings and notes stay under `outputs/`.
 
-## Run the app
+## Quick navigation
+
+- [What you need](#what-you-need)
+- [Windows setup](#windows-setup)
+- [macOS setup](#macos-setup)
+- [Linux / CPU-only setup](#linux--cpu-only-setup)
+- [Verify local transcription](#verify-local-transcription)
+- [Run the desktop app](#run-the-desktop-app)
+- [Private phone access with Tailscale](#private-phone-access-with-tailscale)
+- [What is not committed](#what-is-not-committed)
+- [Development checks](#development-checks)
+- [Workspace map](#workspace-map)
+
+## What you need
 
 If you cloned this repository from GitHub, the private and heavy local files are
-intentionally not included. You need:
+intentionally not included. Each system needs the same three local pieces:
 
-- a local model, normally `models/ggml-large-v3-turbo-q5_0.bin`
+- JavaScript dependencies in `node_modules/`
+- a Whisper model, normally `models/ggml-large-v3-turbo-q5_0.bin`
 - a local `whisper-cli` runtime, either under `runtime/whisper/` or available
   on `PATH`
-- Electron dependencies in `node_modules/`
-
-### Fresh clone setup
-
-Install the JavaScript dependencies:
-
-```powershell
-npm.cmd install
-```
-
-Fetch the local `whisper.cpp` source used by the setup scripts:
-
-```powershell
-New-Item -ItemType Directory -Force vendor | Out-Null
-git clone https://github.com/ggml-org/whisper.cpp vendor/whisper.cpp
-git -C vendor/whisper.cpp checkout 43d78af5be58f41d6ffbc227d608f104577741ea
-```
-
-Create the local model folder:
-
-```powershell
-New-Item -ItemType Directory -Force models | Out-Null
-```
-
-Download `ggml-large-v3-turbo-q5_0.bin` from the upstream whisper.cpp model
-collection and place it at:
-
-```text
-models/ggml-large-v3-turbo-q5_0.bin
-```
-
-If you have Git Bash, WSL, macOS, or Linux available, the vendored whisper.cpp
-helper can download it directly into Aervellum's local `models/` folder:
-
-```bash
-cd vendor/whisper.cpp/models
-./download-ggml-model.sh large-v3-turbo-q5_0 ../../../models
-```
-
-On Windows, you can also try the bundled command script:
-
-```powershell
-vendor\whisper.cpp\models\download-ggml-model.cmd large-v3-turbo-q5_0 models
-```
-
-Or download the same model manually from:
-
-```text
-https://huggingface.co/ggerganov/whisper.cpp/tree/main
-```
-
-Then build or install a `whisper-cli` runtime. The easiest starting point is the
-CPU fallback:
-
-```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\scripts\build-whisper-cpu.ps1
-```
-
-For GPU acceleration, use the backend-specific build scripts in the build
-section below.
-
-Verify the local model and runtime:
-
-```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\scripts\verify-runtime.ps1
-```
-
-Then start the desktop app:
-
-From PowerShell:
-
-```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\scripts\run.ps1
-```
-
-Or:
-
-```powershell
-npm.cmd start
-```
-
-On first use, Windows will ask for microphone permission. Recording stops when
-you press the red button a second time. After transcription, the text remains
-editable. "Save as Markdown" writes the page to `outputs/notes/`; source WAV
-files and plain transcripts are kept in `outputs/audio/`. Diary entries use a
-lined journal treatment and are saved with `form: diary` in their front matter.
 
 Aervellum records WAV because uncompressed PCM audio is simple, local, and widely
 supported across Windows, macOS, Linux, browsers, and `whisper.cpp`. WAV is not
@@ -145,39 +73,262 @@ limited to Windows. Some `whisper-cli` builds can also decode formats such as
 FLAC, MP3, and OGG, especially when built with FFmpeg support, but WAV avoids
 extra codec dependencies.
 
+## Setup by system
+
+Choose the dropdown for your system. The broad-system support is still ongoing,
+so start with the CPU build if GPU setup is being fussy.
+
+### Windows setup
+
+<details>
+<summary><strong>Open Windows instructions</strong> — CPU fallback, NVIDIA CUDA, or AMD/Intel Vulkan</summary>
+
+#### 1. Install dependencies
+
+Install Node.js, Git, CMake, and Ninja. Then install the app dependencies:
+
+```powershell
+npm.cmd install
+```
+
+#### 2. Fetch whisper.cpp
+
+```powershell
+New-Item -ItemType Directory -Force vendor | Out-Null
+git clone https://github.com/ggml-org/whisper.cpp vendor/whisper.cpp
+git -C vendor/whisper.cpp checkout 43d78af5be58f41d6ffbc227d608f104577741ea
+```
+
+#### 3. Download the local model
+
+```powershell
+New-Item -ItemType Directory -Force models | Out-Null
+vendor\whisper.cpp\models\download-ggml-model.cmd large-v3-turbo-q5_0 models
+```
+
+If that helper does not work, manually download `ggml-large-v3-turbo-q5_0.bin`
+from the [upstream whisper.cpp model collection](https://huggingface.co/ggerganov/whisper.cpp/tree/main)
+and place it at:
+
+```text
+models/ggml-large-v3-turbo-q5_0.bin
+```
+
+#### 4. Build a whisper runtime
+
+CPU-only fallback:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\build-whisper-cpu.ps1
+```
+
+NVIDIA CUDA, requires the NVIDIA CUDA Toolkit:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\build-whisper-cuda.ps1
+```
+
+Windows Vulkan, originally tested on AMD Radeon RX 6700 XT:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\build-whisper.ps1
+```
+
+#### 5. Verify and run
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\verify-runtime.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\run.ps1
+```
+
+</details>
+
+### macOS setup
+
+<details>
+<summary><strong>Open macOS instructions</strong> — Apple Metal or CPU fallback</summary>
+
+#### 1. Install dependencies
+
+Install Node.js, Git, CMake, and Ninja. With Homebrew, that usually looks like:
+
+```bash
+brew install node git cmake ninja
+npm install
+```
+
+#### 2. Fetch whisper.cpp
+
+```bash
+mkdir -p vendor
+git clone https://github.com/ggml-org/whisper.cpp vendor/whisper.cpp
+git -C vendor/whisper.cpp checkout 43d78af5be58f41d6ffbc227d608f104577741ea
+```
+
+#### 3. Download the local model
+
+```bash
+mkdir -p models
+cd vendor/whisper.cpp/models
+./download-ggml-model.sh large-v3-turbo-q5_0 ../../../models
+cd ../../..
+```
+
+The model should end up at:
+
+```text
+models/ggml-large-v3-turbo-q5_0.bin
+```
+
+#### 4. Build a whisper runtime
+
+Apple Metal:
+
+```bash
+chmod +x scripts/build-whisper-metal.sh
+./scripts/build-whisper-metal.sh
+```
+
+CPU-only fallback:
+
+```bash
+chmod +x scripts/build-whisper-cpu.sh
+./scripts/build-whisper-cpu.sh
+```
+
+#### 5. Verify and run
+
+The cross-platform verification is currently implemented as a PowerShell script
+for Windows. On macOS, you can verify the runtime directly with `whisper-cli`:
+
+```bash
+./runtime/whisper/darwin/metal/whisper-cli \
+  -m models/ggml-large-v3-turbo-q5_0.bin \
+  -f vendor/whisper.cpp/samples/jfk.wav \
+  -l en
+```
+
+If you built the CPU runtime instead, use:
+
+```bash
+./runtime/whisper/darwin/cpu/whisper-cli \
+  -m models/ggml-large-v3-turbo-q5_0.bin \
+  -f vendor/whisper.cpp/samples/jfk.wav \
+  -l en
+```
+
+Then start the desktop app:
+
+```bash
+npm start
+```
+
+</details>
+
+### Linux / CPU-only setup
+
+<details>
+<summary><strong>Open Linux instructions</strong> — simplest portable path</summary>
+
+Linux support is experimental, but the CPU runtime path should be the easiest
+starting point.
+
+#### 1. Install dependencies
+
+Install Node.js, Git, CMake, Ninja, and a C++ compiler. For Debian/Ubuntu-like
+systems:
+
+```bash
+sudo apt update
+sudo apt install git cmake ninja-build build-essential nodejs npm
+npm install
+```
+
+#### 2. Fetch whisper.cpp
+
+```bash
+mkdir -p vendor
+git clone https://github.com/ggml-org/whisper.cpp vendor/whisper.cpp
+git -C vendor/whisper.cpp checkout 43d78af5be58f41d6ffbc227d608f104577741ea
+```
+
+#### 3. Download the local model
+
+```bash
+mkdir -p models
+cd vendor/whisper.cpp/models
+./download-ggml-model.sh large-v3-turbo-q5_0 ../../../models
+cd ../../..
+```
+
+#### 4. Build CPU whisper runtime
+
+```bash
+chmod +x scripts/build-whisper-cpu.sh
+./scripts/build-whisper-cpu.sh
+```
+
+#### 5. Verify and run
+
+```bash
+./runtime/whisper/linux/cpu/whisper-cli \
+  -m models/ggml-large-v3-turbo-q5_0.bin \
+  -f vendor/whisper.cpp/samples/jfk.wav \
+  -l en
+
+npm start
+```
+
+</details>
+
 ## Verify local transcription
 
-Run the included 11-second JFK sample through the installed model:
+A working setup should transcribe the included 11-second JFK sample to:
+
+> And so, my fellow Americans, ask not what your country can do for you, ask
+> what you can do for your country.
+
+On Windows, use:
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File .\scripts\verify-runtime.ps1
 ```
 
-This prints the selected runtime, backend, accelerator, and transcript. Aervellum
-detects the backend from the installed `whisper-cli` build. Depending on what
-you built or installed, that may be:
+On macOS or Linux, run the matching local binary from your runtime folder. For
+example:
 
-- CUDA for NVIDIA GPUs
-- Vulkan for AMD, Intel, or other Vulkan-capable GPUs
-- Metal for macOS
-- CPU-only fallback for computers without a supported GPU
-
-The original Windows development machine was also verified with:
-
-```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\scripts\verify-gpu.ps1
+```bash
+./runtime/whisper/darwin/metal/whisper-cli \
+  -m models/ggml-large-v3-turbo-q5_0.bin \
+  -f vendor/whisper.cpp/samples/jfk.wav \
+  -l en
 ```
 
-That older check is intentionally specific to the AMD Radeon RX 6700 XT Vulkan
-build. The verified result on June 24, 2026 was:
+Aervellum detects the backend from the installed `whisper-cli` build. Depending
+on what you built or installed, that may be CUDA, Vulkan, Metal, or CPU.
 
-> And so, my fellow Americans, ask not what your country can do for you, ask
-> what you can do for your country.
+## Run the desktop app
 
-The 11-second clip completed in 5.63 seconds total with the 573.40 MB quantized
-model loaded on the Radeon.
+After setup, start Aervellum:
 
-## Build details
+```bash
+npm start
+```
+
+On Windows, this wrapper is also available:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\run.ps1
+```
+
+On first use, the operating system will ask for microphone permission. Recording
+stops when you press the red button a second time. After transcription, the text
+remains editable. "Save as Markdown" writes the page to `outputs/notes/`;
+source WAV files and plain transcripts are kept in `outputs/audio/`. Diary
+entries use a lined journal treatment and are saved with `form: diary` in their
+front matter.
+
+## Runtime details
 
 The app now resolves the Whisper runtime in this order:
 
@@ -192,51 +343,16 @@ The app now resolves the Whisper runtime in this order:
 The model path defaults to `models/ggml-large-v3-turbo-q5_0.bin`. You can point
 at another local model with `AERVELLUM_WHISPER_MODEL`.
 
-The workspace contains:
-
-- `vendor/whisper.cpp/` at commit `43d78af5be58f41d6ffbc227d608f104577741ea`
-- `tools/vulkan-sdk/` with a workspace-local Vulkan SDK payload
-- `tools/spirv-headers/` with the installed SPIR-V headers package
-- `work/build-whisper-vulkan/` with the CMake/Ninja build
-- `runtime/whisper/` with repo-local app runtimes
-
-The build used GCC 13.2, CMake 3.29, Ninja, and:
+The runtime folder layout is:
 
 ```text
-GGML_VULKAN=ON
-Vulkan SDK 1.4.309.0
-GL_EXT_integer_dot_product enabled
+runtime/whisper/win32/cuda/whisper-cli.exe
+runtime/whisper/win32/vulkan/whisper-cli.exe
+runtime/whisper/win32/cpu/whisper-cli.exe
+runtime/whisper/darwin/metal/whisper-cli
+runtime/whisper/darwin/cpu/whisper-cli
+runtime/whisper/linux/cpu/whisper-cli
 ```
-
-To rebuild the original Windows Vulkan runtime after editing or updating
-`vendor/whisper.cpp`:
-
-```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\scripts\build-whisper.ps1
-powershell.exe -ExecutionPolicy Bypass -File .\scripts\verify-runtime.ps1
-```
-
-Other experimental runtime builds:
-
-```powershell
-# Windows CPU-only fallback
-powershell.exe -ExecutionPolicy Bypass -File .\scripts\build-whisper-cpu.ps1
-
-# Windows NVIDIA CUDA, requires the NVIDIA CUDA Toolkit
-powershell.exe -ExecutionPolicy Bypass -File .\scripts\build-whisper-cuda.ps1
-```
-
-```bash
-# macOS Metal
-./scripts/build-whisper-metal.sh
-
-# macOS/Linux CPU-only fallback
-./scripts/build-whisper-cpu.sh
-```
-
-The Windows Vulkan build script stages the finished executable and required
-MinGW DLLs into `runtime/whisper/`. The newer portable scripts stage runtimes
-under `runtime/whisper/<platform>/<backend>/`.
 
 ## What is not committed
 
@@ -274,23 +390,22 @@ phone browser, sent through the encrypted tailnet to this computer, transcribed
 on the host computer with the best available local Whisper runtime, and stored
 in this workspace.
 
-Start the private host:
+First, install and sign into [Tailscale](https://tailscale.com/) on both your
+computer and phone. Then pick your host operating system below.
+
+<details>
+<summary><strong>Windows private host</strong></summary>
+
+Start Aervellum's local web host:
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File .\scripts\serve-private.ps1
 ```
 
-This workspace expects the existing Tailscale Serve mapping:
+Expose it privately through Tailscale Serve:
 
 ```powershell
 tailscale serve --bg http://127.0.0.1:3210
-```
-
-Then, from a phone signed into the same tailnet, open your own Tailscale Serve
-URL:
-
-```text
-https://your-machine.your-tailnet.ts.net
 ```
 
 If you want `serve-private.ps1` to print your private URL, set it in your local
@@ -298,6 +413,61 @@ shell or a private startup script:
 
 ```powershell
 $env:AERVELLUM_PRIVATE_URL = "https://your-machine.your-tailnet.ts.net"
+```
+
+To stop the local host:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\stop-private.ps1
+```
+
+</details>
+
+<details>
+<summary><strong>macOS private host</strong></summary>
+
+Start Aervellum's local web host:
+
+```bash
+npm run serve
+```
+
+In another terminal, expose it privately through Tailscale Serve:
+
+```bash
+tailscale serve --bg http://127.0.0.1:3210
+```
+
+To stop the foreground Node host, press `Control-C` in the terminal where
+`npm run serve` is running.
+
+</details>
+
+<details>
+<summary><strong>Linux private host</strong></summary>
+
+Start Aervellum's local web host:
+
+```bash
+npm run serve
+```
+
+In another terminal, expose it privately through Tailscale Serve:
+
+```bash
+tailscale serve --bg http://127.0.0.1:3210
+```
+
+To stop the foreground Node host, press `Control-C` in the terminal where
+`npm run serve` is running.
+
+</details>
+
+Then, from a phone signed into the same tailnet, open your own Tailscale Serve
+URL:
+
+```text
+https://your-machine.your-tailnet.ts.net
 ```
 
 Allow microphone access when prompted. Tailscale Serve provides the HTTPS
@@ -332,16 +502,9 @@ source transcript. This preserves custom titles and the selected field-note,
 poem, or diary shape even when the displayed text was reformatted after
 transcription.
 
-Host logs are written to `outputs/host/`. To stop the host, find its process
-cleanly:
-
-```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\scripts\stop-private.ps1
-```
-
 The computer must remain awake and connected to Tailscale while the phone is
-using Aervellum. After a reboot, run `serve-private.ps1` again; the existing
-Tailscale Serve mapping remains in place.
+using Aervellum. After a reboot, start the local Aervellum host again; the
+existing Tailscale Serve mapping remains in place.
 
 ## Workspace map
 
