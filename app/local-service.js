@@ -312,11 +312,11 @@ async function runSaveNote(payload) {
   const title = String(payload.title || "Untitled voice note").trim().slice(0, 120);
   const allowedForms = new Set(["note", "poem", "diary"]);
   const form = allowedForms.has(payload.form) ? payload.form : "note";
-  const recording = recordingFilename(payload.recording);
   const existingFile = markdownFilename(payload.file || payload.noteFile);
   const existingMetadata = existingFile && await exists(path.join(notesDir, existingFile))
     ? parseFrontMatter(await fs.readFile(path.join(notesDir, existingFile), "utf8")).metadata
     : null;
+  const recording = recordingFilename(payload.recording) || recordingFilename(existingMetadata?.recording);
   const duplicate = existingFile && existingMetadata
     ? { filename: existingFile, metadata: existingMetadata, linkedRecording: true, explicit: true }
     : await findDuplicateNote(title, form, text, recording);
@@ -615,6 +615,7 @@ async function getNote(id) {
     created: metadata.created || "",
     text: noteTextWithoutHeading(body, title),
     source: "note",
+    recording: recordingFilename(metadata.recording),
   };
 }
 

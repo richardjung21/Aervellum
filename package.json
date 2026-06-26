@@ -8,7 +8,8 @@
     "postinstall": "install-electron",
     "start": "electron .",
     "serve": "node app/server.js",
-    "check": "node --check app/local-service.js && node --check app/server.js && node --check app/main.js && node --check app/preload.js && node --check app/renderer.js"
+    "check": "node --check app/local-service.js && node --check app/server.js && node --check app/main.js && node --check app/preload.js && node --check app/renderer.js",
+    "portability": "node scripts/check-portability.js"
   },
   "devDependencies": {
     "electron": "42.5.0"

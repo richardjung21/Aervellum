@@ -375,10 +375,16 @@ repo should stay small and privacy-safe, while still being reproducible.
 ## Development checks
 
 ```powershell
-npm.cmd install
-npm.cmd run check
-npm.cmd audit
+npm install
+npm run check
+npm run portability
+npm audit
 ```
+
+On Windows, `npm.cmd ...` also works if your shell needs the explicit command
+shim. The portability check scans public source files for CRLF line-ending
+drift, encoding replacement characters, known mojibake sequences, and accidental
+absolute personal paths before you publish or test on another OS.
 
 Electron is pinned in `package.json` and `package-lock.json`. The UI is plain
 HTML/CSS/JavaScript; the Electron main process only exposes three narrow IPC
@@ -482,12 +488,13 @@ buttons above the paper, the left/right keyboard arrows, or horizontal trackpad
 scrolling. On a phone, swipe left for older entries and right to return toward
 the current draft.
 
-Archived pages are read-only, while the current draft remains editable and is
-preserved as you browse. Long archived entries scroll vertically inside the
-paper. Press the page counter to jump directly back to the draft. The **New**
-button appears while browsing an archived page and opens a fresh draft. The
-**Delete** button appears on archived pages and moves the entry's local files to
-`outputs/trash/` rather than permanently deleting them.
+Opening an archived Markdown page promotes it into the current editable saved
+entry. You can change the title, body, or switch it between field note, diary,
+and poem; autosave and **Save** overwrite the same Markdown file rather than
+creating a duplicate. Long entries scroll vertically inside the paper. The
+**New** button opens a fresh draft after the current saved entry has been saved.
+The **Delete** button appears for saved entries and moves the entry's local
+files to `outputs/trash/` rather than permanently deleting them.
 
 The archive uses `outputs/notes/*.md` as its source of truth. Raw WAV files and
 plain transcripts remain in `outputs/audio/`, but they are linked from Markdown

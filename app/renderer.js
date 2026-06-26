@@ -102,11 +102,12 @@ let saveAgainAfterCurrent = false;
 const noteCache = new Map();
 
 const draft = {
-  title: "An untitled voice note",
+  title: "Dear diary",
   text: "",
-  form: "note",
+  form: "diary",
   empty: true,
   provenance: "Recorded and transcribed entirely on this device.",
+  created: "",
   recording: "",
   noteFile: "",
   dirty: false,
@@ -232,27 +233,33 @@ function captureDraft() {
   draft.form = form.value;
   draft.empty = noteBody.classList.contains("empty");
   draft.provenance = provenance.textContent;
+  draft.created = draft.created || "";
   draft.recording = draft.recording || "";
   draft.noteFile = draft.noteFile || "";
 }
 
 function resetDraft() {
-  draft.title = "An untitled voice note";
+  draft.title = "Dear diary";
   draft.text = "";
-  draft.form = "note";
+  draft.form = "diary";
   draft.empty = true;
   draft.provenance = "Recorded and transcribed entirely on this device.";
+  draft.created = "";
   draft.recording = "";
   draft.noteFile = "";
   draft.dirty = false;
 }
 
 function draftHasContent() {
-  return Boolean(draft.recording || draft.text.trim() || !draft.empty || draft.title !== "An untitled voice note");
+  return Boolean(draft.recording || draft.text.trim() || !draft.empty || draft.title !== "Dear diary");
 }
 
 function activeArchiveExclude() {
   return draft.noteFile || "";
+}
+
+function noteFileFromArchiveId(id) {
+  return typeof id === "string" && id.startsWith("note:") ? id.slice("note:".length) : "";
 }
 
 function markDraftDirty() {
@@ -333,7 +340,7 @@ function setArchiveMode(isArchive) {
   saveButton.disabled = isArchive || !noteBody.textContent.trim();
   saveButton.textContent = isArchive ? "Archived page" : "Save";
   newDraftButton.disabled = isArchive ? false : !(draft.noteFile && !draft.dirty && !saveInFlight);
-  deletePageButton.disabled = !isArchive;
+  deletePageButton.disabled = isArchive ? false : !(draft.noteFile && !saveInFlight);
 }
 
 function updatePageNavigation() {
@@ -343,7 +350,9 @@ function updatePageNavigation() {
   newDraftButton.disabled = currentPageIndex === 0
     ? !(draft.noteFile && !draft.dirty && !saveInFlight)
     : false;
-  deletePageButton.disabled = currentPageIndex === 0;
+  deletePageButton.disabled = currentPageIndex === 0
+    ? !(draft.noteFile && !saveInFlight)
+    : false;
   pageKind.textContent = currentPageIndex === 0
     ? (draft.noteFile ? "Current entry" : "Current draft")
     : "Archive";
@@ -362,26 +371,61 @@ async function createNewDraft() {
   window.setTimeout(() => noteBody.focus(), 120);
 }
 
-async function deleteCurrentArchivePage() {
-  if (currentPageIndex === 0) return;
+function getCurrentDeleteTarget() {
+  if (currentPageIndex === 0) {
+    if (!draft.noteFile) return null;
+    return {
+      id: `note:${draft.noteFile}`,
+      title: noteTitle.value || "Current entry",
+      currentEntry: true,
+    };
+  }
+
   const archiveIndex = currentPageIndex - 1;
   const entry = noteCache.get(archiveIndex);
-  if (!entry?.id) {
-    setStatus("error", "Could not delete", "This archive page has not finished loading.");
+  if (!entry?.id) return null;
+  return {
+    id: entry.id,
+    title: entry.title,
+    currentEntry: false,
+  };
+}
+
+async function deleteCurrentPage() {
+  const target = getCurrentDeleteTarget();
+  if (!target) {
+    setStatus("error", "Could not delete", "This saved page has not finished loading.");
     return;
   }
-  if (!window.confirm(`Move "${entry.title}" to the local trash?`)) return;
+
+  const extraWarning = target.currentEntry && draft.dirty
+    ? " Any unsaved changes on this page will be discarded."
+    : "";
+  if (!window.confirm(`Move "${target.title}" to the local trash?${extraWarning}`)) return;
+
+  if (autosaveTimer) {
+    window.clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+  }
 
   deletePageButton.disabled = true;
   try {
     setStatus("busy", "Crumpling the page", "Moving the entry into the local trash.");
     await playPaperCrumple();
-    const result = await aervellum.deleteArchiveEntry(entry.id);
+    const result = await aervellum.deleteArchiveEntry(target.id);
     noteCache.clear();
     await refreshArchive({ clearCache: true });
-    const nextPageIndex = Math.min(currentPageIndex, archiveCount);
-    currentPageIndex = -1;
-    await showPage(nextPageIndex, -1);
+
+    if (target.currentEntry) {
+      resetDraft();
+      currentPageIndex = -1;
+      await showPage(0, -1);
+    } else {
+      const nextPageIndex = Math.min(currentPageIndex, archiveCount);
+      currentPageIndex = -1;
+      await showPage(nextPageIndex, -1);
+    }
+
     setStatus("ready", "Moved to trash", `${result.moved?.length || 0} file(s) moved to ${result.trash}.`);
   } catch (error) {
     setStatus("error", "Could not delete the page", error.message);
@@ -396,6 +440,15 @@ async function showPage(index, direction = 0) {
   if (bounded === currentPageIndex && !pageChangeLocked) return;
   if (pageChangeLocked) return;
 
+  if (currentPageIndex === 0 && bounded > 0 && draft.dirty) {
+    setStatus("busy", "Saving current page", "Keeping your edits before opening another saved entry.");
+    const result = await saveCurrentDraft({ automatic: true });
+    if (!result && draftHasContent()) {
+      setStatus("error", "Could not change pages", "Save the current page before opening another entry.");
+      return;
+    }
+  }
+
   pageChangeLocked = true;
   captureDraft();
   paper.classList.add(direction < 0 ? "turning-right" : "turning-left");
@@ -409,7 +462,10 @@ async function showPage(index, direction = 0) {
         ? (draft.form === "diary" ? "Tell the page what today felt like." : "Your words will settle here.")
         : draft.text;
       noteBody.classList.toggle("empty", draft.empty);
-      noteDate.textContent = dateFormatter.format(new Date());
+      const draftCreated = draft.created ? new Date(draft.created) : new Date();
+      noteDate.textContent = Number.isNaN(draftCreated.getTime())
+        ? dateFormatter.format(new Date())
+        : dateFormatter.format(draftCreated);
       provenance.textContent = draft.provenance;
       setArchiveMode(false);
       applyFormAppearance();
@@ -424,20 +480,35 @@ async function showPage(index, direction = 0) {
         noteCache.set(archiveIndex, entry);
       }
 
-      currentPageIndex = bounded;
-      noteTitle.value = entry.title;
-      form.value = entry.form;
-      noteBody.textContent = entry.text || "This page is empty.";
-      noteBody.classList.remove("empty");
+      const noteFile = noteFileFromArchiveId(entry.id);
+      if (!noteFile) throw new Error("Only Markdown archive pages can be edited.");
+
+      draft.title = entry.title;
+      draft.text = entry.text || "";
+      draft.form = entry.form;
+      draft.empty = !draft.text.trim();
+      draft.provenance = "Saved privately in your local Aervellum archive.";
+      draft.created = entry.created || "";
+      draft.recording = entry.recording || "";
+      draft.noteFile = noteFile;
+      draft.dirty = false;
+
+      currentPageIndex = 0;
+      noteTitle.value = draft.title;
+      form.value = draft.form;
+      noteBody.textContent = draft.empty
+        ? (draft.form === "diary" ? "Tell the page what today felt like." : "Your words will settle here.")
+        : draft.text;
+      noteBody.classList.toggle("empty", draft.empty);
       const created = new Date(entry.created);
       noteDate.textContent = Number.isNaN(created.getTime())
         ? "Saved entry"
         : dateFormatter.format(created);
-      provenance.textContent = "Saved privately in your local Aervellum archive.";
-      setArchiveMode(true);
+      provenance.textContent = draft.provenance;
+      setArchiveMode(false);
       applyFormAppearance(false);
-      setStatus("ready", "Archive page", `${entry.title} · ${currentPageIndex} of ${archiveCount}`);
-      prefetchAdjacent(archiveIndex);
+      await refreshArchive({ clearCache: true });
+      setStatus("ready", "Saved entry opened", `${entry.title} is ready to edit.`);
     }
     updatePageNavigation();
     noteBody.scrollTop = 0;
@@ -615,7 +686,7 @@ saveButton.addEventListener("click", () => saveCurrentDraft({ automatic: false }
 previousPage.addEventListener("click", () => showPage(currentPageIndex - 1, -1));
 nextPage.addEventListener("click", () => showPage(currentPageIndex + 1, 1));
 newDraftButton.addEventListener("click", createNewDraft);
-deletePageButton.addEventListener("click", deleteCurrentArchivePage);
+deletePageButton.addEventListener("click", deleteCurrentPage);
 draftPage.addEventListener("click", () => {
   if (currentPageIndex !== 0) showPage(0, -1);
 });

@@ -54,7 +54,7 @@
               <select id="form">
                 <option value="note">Field note</option>
                 <option value="poem">Loose poem</option>
-                <option value="diary">Diary entry</option>
+                <option value="diary" selected>Diary entry</option>
               </select>
             </label>
           </div>
@@ -76,14 +76,14 @@
               <span id="pageKind">Current draft</span>
               <b id="pageCount">1 / 1</b>
             </button>
-            <button id="deletePageButton" class="page-action danger" aria-label="Delete archived page" disabled>Delete</button>
+            <button id="deletePageButton" class="page-action danger" aria-label="Delete saved page" disabled>Delete</button>
             <button id="nextPage" class="page-arrow" aria-label="Next page" disabled>→</button>
           </nav>
           <div class="paper">
             <div class="paper-head">
               <div>
                 <p class="date" id="noteDate"></p>
-                <input id="noteTitle" value="An untitled voice note" aria-label="Note title" />
+                <input id="noteTitle" value="Dear diary" aria-label="Note title" />
               </div>
               <span class="folio">No. <b id="folio">001</b></span>
             </div>
