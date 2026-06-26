@@ -1,0 +1,16 @@
+{
+  "name": "aervellum-voice-notes",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A private, local-first voice notes desk powered by whisper.cpp.",
+  "main": "app/main.js",
+  "scripts": {
+    "postinstall": "install-electron",
+    "start": "electron .",
+    "serve": "node app/server.js",
+    "check": "node --check app/local-service.js && node --check app/server.js && node --check app/main.js && node --check app/preload.js && node --check app/renderer.js"
+  },
+  "devDependencies": {
+    "electron": "42.5.0"
+  }
+}

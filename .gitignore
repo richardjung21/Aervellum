@@ -1,0 +1,13 @@
+node_modules/
+outputs/
+models/
+runtime/
+vendor/
+tools/downloads/
+tools/spirv-headers/
+tools/vulkan-sdk-stage/
+tools/vulkan-sdk/
+work/
+.env
+.env.*
+*.log

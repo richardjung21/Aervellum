@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'">
+    <title>Aervellum</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="desk">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">A private listening desk</p>
+          <h1>Aervellum</h1>
+        </div>
+        <div class="privacy"><span></span> Local only · nothing leaves this room</div>
+      </header>
+
+      <section class="workspace">
+        <aside class="recorder-panel">
+          <div class="section-number">01 / CAPTURE</div>
+          <h2>Speak while it’s still alive.</h2>
+          <p class="lede">A thought, a field note, three unruly lines. Your microphone stays on this machine.</p>
+
+          <div class="recording-orbit" id="recordingOrbit">
+            <button class="record-button" id="recordButton" aria-label="Start recording">
+              <span class="record-dot"></span>
+              <span id="recordLabel">Record</span>
+            </button>
+          </div>
+
+          <div class="time-row">
+            <span id="timer">00:00</span>
+            <canvas id="meter" width="240" height="42" aria-hidden="true"></canvas>
+          </div>
+
+          <div class="controls">
+            <label>
+              Language
+              <select id="language">
+                <option value="auto">Detect automatically</option>
+                <option value="en">English</option>
+                <option value="ko">한국어</option>
+                <option value="ja">日本語</option>
+                <option value="es">Español</option>
+                <option value="fr">Français</option>
+                <option value="de">Deutsch</option>
+              </select>
+            </label>
+            <label>
+              Shape
+              <select id="form">
+                <option value="note">Field note</option>
+                <option value="poem">Loose poem</option>
+                <option value="diary">Diary entry</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="status-card">
+            <div class="status-light" id="statusLight"></div>
+            <div>
+              <strong id="statusTitle">Checking the desk…</strong>
+              <p id="statusDetail">Looking for the local model and Whisper runtime.</p>
+            </div>
+          </div>
+        </aside>
+
+        <article class="paper-shell">
+          <nav class="page-nav" aria-label="Browse pages">
+            <button id="previousPage" class="page-arrow" aria-label="Previous page" disabled>←</button>
+            <button id="draftPage" class="page-position" aria-label="Return to current draft">
+              <span id="pageKind">Current draft</span>
+              <b id="pageCount">1 / 1</b>
+            </button>
+            <button id="nextPage" class="page-arrow" aria-label="Next page" disabled>→</button>
+          </nav>
+          <div class="paper">
+            <div class="paper-head">
+              <div>
+                <p class="date" id="noteDate"></p>
+                <input id="noteTitle" value="An untitled voice note" aria-label="Note title" />
+              </div>
+              <span class="folio">No. <b id="folio">001</b></span>
+            </div>
+
+            <div id="noteBody" class="note-body empty" contenteditable="true" spellcheck="true">
+              Your words will settle here.
+            </div>
+
+            <footer class="paper-foot">
+              <p id="provenance">Recorded and transcribed entirely on this device.</p>
+              <button id="saveButton" disabled>Save as Markdown</button>
+            </footer>
+          </div>
+        </article>
+      </section>
+    </main>
+    <script src="./renderer.js"></script>
+  </body>
+</html>
