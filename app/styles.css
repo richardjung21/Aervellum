@@ -688,22 +688,25 @@ select {
   .page-nav {
     height: 42px;
     justify-content: center;
+    gap: 4px;
   }
 
   .page-arrow {
-    width: 42px;
+    width: 36px;
     height: 34px;
   }
 
   .page-action {
     height: 34px;
-    padding: 0 9px;
+    padding: 0 7px;
     font-size: 8px;
   }
 
   .page-position {
-    width: min(150px, 42vw);
+    width: min(128px, 34vw);
     height: 34px;
+    gap: 5px;
+    padding: 0 8px;
   }
 
   .paper {

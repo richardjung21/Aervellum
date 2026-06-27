@@ -18,6 +18,7 @@ const paper = document.querySelector(".paper");
 const previousPage = document.querySelector("#previousPage");
 const nextPage = document.querySelector("#nextPage");
 const newDraftButton = document.querySelector("#newDraftButton");
+const editArchiveButton = document.querySelector("#editArchiveButton");
 const deletePageButton = document.querySelector("#deletePageButton");
 const draftPage = document.querySelector("#draftPage");
 const pageKind = document.querySelector("#pageKind");
@@ -48,6 +49,18 @@ const aervellum = window.aervellum || window.vellum || {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Saving the note failed.");
+    return result;
+  },
+  async listNotes() {
+    const response = await fetch("/api/notes", { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Loading the archive failed.");
+    return result.notes || [];
+  },
+  async getNote(id) {
+    const response = await fetch(`/api/notes/${encodeURIComponent(id)}`, { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Loading that page failed.");
     return result;
   },
   async getArchiveCount(options = {}) {
@@ -91,6 +104,7 @@ let startedAt = 0;
 let timerHandle;
 let animationHandle;
 let archiveCount = 0;
+let archiveRecords = [];
 let currentPageIndex = 0;
 let pageChangeLocked = false;
 let wheelLocked = false;
@@ -258,6 +272,15 @@ function activeArchiveExclude() {
   return draft.noteFile || "";
 }
 
+function activeArchiveId() {
+  return draft.noteFile ? `note:${draft.noteFile}` : "";
+}
+
+function browsableArchiveRecords() {
+  const activeId = activeArchiveId();
+  return activeId ? archiveRecords.filter((entry) => entry.id !== activeId) : archiveRecords;
+}
+
 function noteFileFromArchiveId(id) {
   return typeof id === "string" && id.startsWith("note:") ? id.slice("note:".length) : "";
 }
@@ -339,6 +362,7 @@ function setArchiveMode(isArchive) {
   form.disabled = isArchive;
   saveButton.disabled = isArchive || !noteBody.textContent.trim();
   saveButton.textContent = isArchive ? "Archived page" : "Save";
+  editArchiveButton.disabled = !isArchive;
   newDraftButton.disabled = isArchive ? false : !(draft.noteFile && !draft.dirty && !saveInFlight);
   deletePageButton.disabled = isArchive ? false : !(draft.noteFile && !saveInFlight);
 }
@@ -356,7 +380,7 @@ function updatePageNavigation() {
   pageKind.textContent = currentPageIndex === 0
     ? (draft.noteFile ? "Current entry" : "Current draft")
     : "Archive";
-  pageCount.textContent = `${currentPageIndex + 1} / ${total}`;
+  pageCount.textContent = `${currentPageIndex + 1} / ${Math.max(1, total)}`;
   folio.textContent = String(currentPageIndex + 1).padStart(3, "0");
 }
 
@@ -369,6 +393,41 @@ async function createNewDraft() {
   await showPage(0, -1);
   setStatus("ready", "New draft", "A fresh page is ready.");
   window.setTimeout(() => noteBody.focus(), 120);
+}
+
+async function editCurrentArchivePage() {
+  if (currentPageIndex === 0 || pageChangeLocked) return;
+  const archiveIndex = currentPageIndex - 1;
+  let entry = noteCache.get(archiveIndex);
+
+  try {
+    if (!entry) {
+      const record = browsableArchiveRecords()[archiveIndex];
+      if (!record) throw new Error("That archived page is no longer available.");
+      entry = await aervellum.getNote(record.id);
+    }
+
+    const noteFile = noteFileFromArchiveId(entry.id);
+    if (!noteFile) throw new Error("Only Markdown archive pages can be edited.");
+
+    draft.title = entry.title;
+    draft.text = entry.text || "";
+    draft.form = entry.form;
+    draft.empty = !draft.text.trim();
+    draft.provenance = "Saved privately in your local Aervellum archive.";
+    draft.created = entry.created || "";
+    draft.recording = entry.recording || "";
+    draft.noteFile = noteFile;
+    draft.dirty = false;
+
+    noteCache.clear();
+    currentPageIndex = -1;
+    await showPage(0, -1);
+    setStatus("ready", "Editing saved entry", `${entry.title} is now the focused page.`);
+    window.setTimeout(() => noteBody.focus(), 120);
+  } catch (error) {
+    setStatus("error", "Could not edit the page", error.message);
+  }
 }
 
 function getCurrentDeleteTarget() {
@@ -471,44 +530,24 @@ async function showPage(index, direction = 0) {
       applyFormAppearance();
     } else {
       const archiveIndex = bounded - 1;
-      let entry = noteCache.get(archiveIndex);
-      if (!entry) {
-        setStatus("busy", "Turning the page", "Opening a saved entry from the local archive.");
-        const page = await aervellum.getArchivePage(archiveIndex, { exclude: activeArchiveExclude() });
-        archiveCount = page.count;
-        entry = page.entry;
-        noteCache.set(archiveIndex, entry);
-      }
+      const record = browsableArchiveRecords()[archiveIndex];
+      setStatus("busy", "Turning the page", "Opening a saved entry from the local archive.");
+      const entry = await aervellum.getNote(record.id);
+      noteCache.set(archiveIndex, entry);
 
-      const noteFile = noteFileFromArchiveId(entry.id);
-      if (!noteFile) throw new Error("Only Markdown archive pages can be edited.");
-
-      draft.title = entry.title;
-      draft.text = entry.text || "";
-      draft.form = entry.form;
-      draft.empty = !draft.text.trim();
-      draft.provenance = "Saved privately in your local Aervellum archive.";
-      draft.created = entry.created || "";
-      draft.recording = entry.recording || "";
-      draft.noteFile = noteFile;
-      draft.dirty = false;
-
-      currentPageIndex = 0;
-      noteTitle.value = draft.title;
-      form.value = draft.form;
-      noteBody.textContent = draft.empty
-        ? (draft.form === "diary" ? "Tell the page what today felt like." : "Your words will settle here.")
-        : draft.text;
-      noteBody.classList.toggle("empty", draft.empty);
+      currentPageIndex = bounded;
+      noteTitle.value = entry.title;
+      form.value = entry.form;
+      noteBody.textContent = entry.text || "";
+      noteBody.classList.toggle("empty", !entry.text?.trim());
       const created = new Date(entry.created);
       noteDate.textContent = Number.isNaN(created.getTime())
         ? "Saved entry"
         : dateFormatter.format(created);
-      provenance.textContent = draft.provenance;
-      setArchiveMode(false);
+      provenance.textContent = "Saved privately in your local Aervellum archive.";
+      setArchiveMode(true);
       applyFormAppearance(false);
-      await refreshArchive({ clearCache: true });
-      setStatus("ready", "Saved entry opened", `${entry.title} is ready to edit.`);
+      setStatus("ready", "Archived page", `Press Edit to focus on ${entry.title}.`);
     }
     updatePageNavigation();
     noteBody.scrollTop = 0;
@@ -523,10 +562,12 @@ async function showPage(index, direction = 0) {
 }
 
 async function refreshArchive({ clearCache = false } = {}) {
-  const result = await aervellum.getArchiveCount({ exclude: activeArchiveExclude() });
-  const nextCount = Number.isInteger(result.count) ? result.count : 0;
-  if (clearCache || nextCount !== archiveCount) noteCache.clear();
-  archiveCount = nextCount;
+  const records = await aervellum.listNotes();
+  const previousIds = archiveRecords.map((entry) => entry.id).join("\n");
+  const nextIds = records.map((entry) => entry.id).join("\n");
+  if (clearCache || nextIds !== previousIds) noteCache.clear();
+  archiveRecords = records;
+  archiveCount = browsableArchiveRecords().length;
   if (currentPageIndex > archiveCount) currentPageIndex = archiveCount;
   updatePageNavigation();
 }
@@ -686,6 +727,7 @@ saveButton.addEventListener("click", () => saveCurrentDraft({ automatic: false }
 previousPage.addEventListener("click", () => showPage(currentPageIndex - 1, -1));
 nextPage.addEventListener("click", () => showPage(currentPageIndex + 1, 1));
 newDraftButton.addEventListener("click", createNewDraft);
+editArchiveButton.addEventListener("click", editCurrentArchivePage);
 deletePageButton.addEventListener("click", deleteCurrentPage);
 draftPage.addEventListener("click", () => {
   if (currentPageIndex !== 0) showPage(0, -1);
