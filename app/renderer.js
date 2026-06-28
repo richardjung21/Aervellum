@@ -113,6 +113,7 @@ let autosaveTimer;
 let autosaveFadeTimer;
 let saveInFlight = false;
 let saveAgainAfterCurrent = false;
+let archiveEditSession = null;
 const noteCache = new Map();
 
 const draft = {
@@ -286,8 +287,13 @@ function noteFileFromArchiveId(id) {
 }
 
 function markDraftDirty() {
-  if (currentPageIndex !== 0) return;
-  draft.dirty = true;
+  if (archiveEditSession) {
+    archiveEditSession.dirty = true;
+  } else if (currentPageIndex === 0) {
+    draft.dirty = true;
+  } else {
+    return;
+  }
   updatePageNavigation();
   if (autosaveTimer) window.clearTimeout(autosaveTimer);
   if (!noteBody.textContent.trim() || noteBody.classList.contains("empty")) return;
@@ -304,8 +310,9 @@ function showAutosaveStatus() {
 }
 
 async function saveCurrentDraft({ automatic = false } = {}) {
-  if (currentPageIndex !== 0) return null;
-  captureDraft();
+  const editingArchive = Boolean(archiveEditSession);
+  if (currentPageIndex !== 0 && !editingArchive) return null;
+  if (!editingArchive) captureDraft();
   const text = noteBody.classList.contains("empty") ? "" : noteBody.textContent.trim();
   if (!text) return null;
 
@@ -321,20 +328,32 @@ async function saveCurrentDraft({ automatic = false } = {}) {
       title: noteTitle.value,
       text: noteBody.textContent,
       form: form.value,
-      recording: draft.recording,
-      noteFile: draft.noteFile,
+      recording: editingArchive ? archiveEditSession.recording : draft.recording,
+      noteFile: editingArchive ? archiveEditSession.noteFile : draft.noteFile,
     });
-    draft.noteFile = result.noteFile || (result.file ? result.file.split(/[\\/]/).pop() : draft.noteFile);
-    draft.dirty = false;
-    captureDraft();
+    if (editingArchive) {
+      archiveEditSession.title = noteTitle.value;
+      archiveEditSession.text = noteBody.textContent;
+      archiveEditSession.form = form.value;
+      archiveEditSession.dirty = false;
+    } else {
+      draft.noteFile = result.noteFile || (result.file ? result.file.split(/[\\/]/).pop() : draft.noteFile);
+      draft.dirty = false;
+      captureDraft();
+    }
     await refreshArchive({ clearCache: true });
+    if (editingArchive) noteCache.set(currentPageIndex - 1, { ...archiveEditSession });
     if (automatic) {
       showAutosaveStatus();
     } else {
       showAutosaveStatus();
+      if (editingArchive) {
+        archiveEditSession = null;
+        setArchiveMode(true);
+      }
       setStatus(
         "ready",
-        result.updated || draft.noteFile ? "Saved" : "Saved to the archive",
+        editingArchive ? "Saved archive entry" : (result.updated || draft.noteFile ? "Saved" : "Saved to the archive"),
         result.file,
       );
     }
@@ -344,7 +363,7 @@ async function saveCurrentDraft({ automatic = false } = {}) {
     return null;
   } finally {
     saveInFlight = false;
-    saveButton.disabled = currentPageIndex !== 0 || !noteBody.textContent.trim();
+    saveButton.disabled = (!archiveEditSession && currentPageIndex !== 0) || !noteBody.textContent.trim();
     if (saveAgainAfterCurrent) {
       saveAgainAfterCurrent = false;
       markDraftDirty();
@@ -369,17 +388,22 @@ function setArchiveMode(isArchive) {
 
 function updatePageNavigation() {
   const total = archiveCount + 1;
-  previousPage.disabled = currentPageIndex === 0;
-  nextPage.disabled = currentPageIndex >= total - 1;
-  newDraftButton.disabled = currentPageIndex === 0
+  const editingArchive = Boolean(archiveEditSession);
+  previousPage.disabled = editingArchive || currentPageIndex === 0;
+  nextPage.disabled = editingArchive || currentPageIndex >= total - 1;
+  newDraftButton.disabled = editingArchive || (currentPageIndex === 0
     ? !(draft.noteFile && !draft.dirty && !saveInFlight)
-    : false;
-  deletePageButton.disabled = currentPageIndex === 0
+    : false);
+  deletePageButton.disabled = editingArchive || (currentPageIndex === 0
     ? !(draft.noteFile && !saveInFlight)
-    : false;
-  pageKind.textContent = currentPageIndex === 0
-    ? (draft.noteFile ? "Current entry" : "Current draft")
-    : "Archive";
+    : false);
+  draftPage.disabled = editingArchive;
+  editArchiveButton.disabled = editingArchive || currentPageIndex === 0;
+  pageKind.textContent = editingArchive
+    ? "Editing archive"
+    : (currentPageIndex === 0
+      ? (draft.noteFile ? "Current entry" : "Current draft")
+      : "Archive");
   pageCount.textContent = `${currentPageIndex + 1} / ${Math.max(1, total)}`;
   folio.textContent = String(currentPageIndex + 1).padStart(3, "0");
 }
@@ -410,20 +434,14 @@ async function editCurrentArchivePage() {
     const noteFile = noteFileFromArchiveId(entry.id);
     if (!noteFile) throw new Error("Only Markdown archive pages can be edited.");
 
-    draft.title = entry.title;
-    draft.text = entry.text || "";
-    draft.form = entry.form;
-    draft.empty = !draft.text.trim();
-    draft.provenance = "Saved privately in your local Aervellum archive.";
-    draft.created = entry.created || "";
-    draft.recording = entry.recording || "";
-    draft.noteFile = noteFile;
-    draft.dirty = false;
-
-    noteCache.clear();
-    currentPageIndex = -1;
-    await showPage(0, -1);
-    setStatus("ready", "Editing saved entry", `${entry.title} is now the focused page.`);
+    archiveEditSession = {
+      ...entry,
+      noteFile,
+      dirty: false,
+    };
+    setArchiveMode(false);
+    updatePageNavigation();
+    setStatus("ready", "Editing archived page", `${entry.title} will remain on page ${currentPageIndex}.`);
     window.setTimeout(() => noteBody.focus(), 120);
   } catch (error) {
     setStatus("error", "Could not edit the page", error.message);
@@ -494,6 +512,7 @@ async function deleteCurrentPage() {
 }
 
 async function showPage(index, direction = 0) {
+  if (archiveEditSession && index !== currentPageIndex) return;
   await refreshArchive({ clearCache: false });
   const bounded = Math.max(0, Math.min(index, archiveCount));
   if (bounded === currentPageIndex && !pageChangeLocked) return;
@@ -694,7 +713,7 @@ recordButton.addEventListener("click", async () => {
 });
 
 form.addEventListener("change", () => {
-  if (currentPageIndex !== 0) return;
+  if (currentPageIndex !== 0 && !archiveEditSession) return;
   if (!noteBody.classList.contains("empty")) {
     const current = noteBody.textContent.replace(/\n+/g, " ").trim();
     noteBody.textContent = form.value === "poem" ? shapeAsPoem(current) : current;
@@ -734,6 +753,7 @@ draftPage.addEventListener("click", () => {
 });
 
 paper.addEventListener("pointerdown", (event) => {
+  if (archiveEditSession) return;
   if (currentPageIndex === 0 && event.target.closest("#noteBody, #noteTitle")) return;
   pointerStart = { x: event.clientX, y: event.clientY };
 });
