@@ -1,5 +1,9 @@
 # Aervellum
 
+[![Release](https://img.shields.io/github/v/release/richardjung21/Aervellum)](https://github.com/richardjung21/Aervellum/releases/latest)
+[![Checks](https://github.com/richardjung21/Aervellum/actions/workflows/checks.yml/badge.svg)](https://github.com/richardjung21/Aervellum/actions/workflows/checks.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Aervellum is a private, local-first voice-notes app that records microphone audio,
 transcribes it with local Whisper models, and typesets the result as an editable
 entry, diary page, or poem on a textured paper surface.
@@ -41,12 +45,15 @@ The workspace also contains a native iPhone companion in `ios/AervellumDiary/`.
 It uses WhisperKit/Core ML for on-device transcription and SwiftData for a
 private diary archive. See its own README for Mac/Xcode build instructions.
 
-No account, server, analytics, cloud API, or network connection is used at
-runtime. Recordings and notes stay under `outputs/`.
+Aervellum uses no cloud transcription API, analytics, or online account.
+Whisper transcription runs on the host computer, and recordings and notes stay
+under `outputs/`. Network access is optional and is used only when you choose to
+open the local host privately through Tailscale.
 
 ## Quick navigation
 
 - [What you need](#what-you-need)
+- [Current release](#current-release)
 - [Windows setup](#windows-setup)
 - [macOS setup](#macos-setup)
 - [Linux / CPU-only setup](#linux--cpu-only-setup)
@@ -56,6 +63,16 @@ runtime. Recordings and notes stay under `outputs/`.
 - [What is not committed](#what-is-not-committed)
 - [Development checks](#development-checks)
 - [Workspace map](#workspace-map)
+- [Contributing and security](#contributing-and-security)
+
+## Current release
+
+The latest published version is available on the
+[GitHub Releases page](https://github.com/richardjung21/Aervellum/releases/latest).
+Aervellum is still early software: cross-platform support and the native iPhone
+companion remain works in progress and may be buggy. Models, recordings, diary
+entries, and compiled runtimes are deliberately excluded from releases; follow
+the setup instructions below to install them locally.
 
 ## What you need
 
@@ -488,13 +505,14 @@ buttons above the paper, the left/right keyboard arrows, or horizontal trackpad
 scrolling. On a phone, swipe left for older entries and right to return toward
 the current draft.
 
-Opening an archived Markdown page promotes it into the current editable saved
-entry. You can change the title, body, or switch it between field note, diary,
-and poem; autosave and **Save** overwrite the same Markdown file rather than
-creating a duplicate. Long entries scroll vertically inside the paper. The
-**New** button opens a fresh draft after the current saved entry has been saved.
-The **Delete** button appears for saved entries and moves the entry's local
-files to `outputs/trash/` rather than permanently deleting them.
+Archived Markdown pages open in a stable reading view. Press **Edit** to change
+the title or body, or switch the page between field note, diary, and poem.
+Navigation is paused while editing, and **Save** overwrites the same Markdown
+file, exits edit mode, and restores page navigation. Long entries scroll
+vertically inside the paper. The **New** button opens a fresh draft after the
+current saved entry has been saved. The **Delete** button appears for saved
+entries and moves the entry's local files to `outputs/trash/` rather than
+permanently deleting them.
 
 The archive uses `outputs/notes/*.md` as its source of truth. Raw WAV files and
 plain transcripts remain in `outputs/audio/`, but they are linked from Markdown
@@ -535,3 +553,10 @@ tools/                  Workspace-local build dependencies
 vendor/                 whisper.cpp and SPIR-V header source
 work/                   CMake/Ninja build trees
 ```
+
+## Contributing and security
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
+opening a pull request. If you find a security or privacy issue, follow
+[SECURITY.md](SECURITY.md) instead of posting sensitive details in a public
+issue. Aervellum is released under the [MIT License](LICENSE).

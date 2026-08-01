@@ -3,6 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "description": "A private, local-first voice notes desk powered by whisper.cpp.",
+  "license": "MIT",
+  "homepage": "https://github.com/richardjung21/Aervellum#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/richardjung21/Aervellum.git"
+  },
+  "bugs": {
+    "url": "https://github.com/richardjung21/Aervellum/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "main": "app/main.js",
   "scripts": {
     "postinstall": "install-electron",
