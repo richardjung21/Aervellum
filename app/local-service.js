@@ -539,6 +539,14 @@ async function migrateTranscriptsToMarkdown() {
 }
 
 async function listNotes(options = {}) {
+  // Migration creates Markdown files too, so it must share the save queue.
+  const task = () => runListNotes(options);
+  const pending = noteSaveQueue.then(task, task);
+  noteSaveQueue = pending.catch(() => {});
+  return pending;
+}
+
+async function runListNotes(options = {}) {
   await ensureDirectories();
   await migrateTranscriptsToMarkdown();
   const markdownEntries = await readMarkdownEntries();

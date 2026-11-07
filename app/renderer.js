@@ -112,6 +112,7 @@ let pointerStart;
 let autosaveTimer;
 let autosaveFadeTimer;
 let saveInFlight = false;
+let saveCompletion = Promise.resolve();
 let saveAgainAfterCurrent = false;
 let archiveEditSession = null;
 const noteCache = new Map();
@@ -322,6 +323,8 @@ async function saveCurrentDraft({ automatic = false } = {}) {
   }
 
   saveInFlight = true;
+  let finishSave;
+  saveCompletion = new Promise((resolve) => { finishSave = resolve; });
   saveButton.disabled = true;
   try {
     const result = await aervellum.saveNote({
@@ -363,6 +366,7 @@ async function saveCurrentDraft({ automatic = false } = {}) {
     return null;
   } finally {
     saveInFlight = false;
+    finishSave();
     saveButton.disabled = (!archiveEditSession && currentPageIndex !== 0) || !noteBody.textContent.trim();
     if (saveAgainAfterCurrent) {
       saveAgainAfterCurrent = false;
@@ -679,6 +683,9 @@ async function stopRecording() {
       wavBytes: encodeWav(samples),
       language: language.value,
     });
+    // Let an earlier entry finish saving before replacing the active draft.
+    await saveCompletion;
+    if (autosaveTimer) window.clearTimeout(autosaveTimer);
     const text = form.value === "poem" ? shapeAsPoem(result.text) : result.text;
     noteBody.textContent = text;
     noteBody.classList.remove("empty");
@@ -686,11 +693,13 @@ async function stopRecording() {
     saveButton.disabled = false;
     const accelerator = result.accelerator || result.gpu || "Local processor";
     provenance.textContent = `${accelerator} · audio kept in ${result.audioFile}`;
+    // This transcript starts a new entry; never overwrite the previous recording.
+    draft.noteFile = "";
+    draft.created = "";
     draft.recording = result.transcriptFile;
     captureDraft();
     markDraftDirty();
-    saveCurrentDraft({ automatic: true });
-    await refreshArchive({ clearCache: true });
+    await saveCurrentDraft({ automatic: true });
     setStatus("ready", "The page is ready", `Transcribed with ${accelerator}.`);
   } catch (error) {
     setStatus("error", "Transcription stumbled", error.message);
